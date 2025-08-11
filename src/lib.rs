@@ -714,6 +714,31 @@ impl SharedMimeInfo {
         Some(res)
     }
 
+    /// Retrieves all the parent MIME types associated to `mime_type`, without unaliasing.
+    /// You may want to use this to get a list of sub-classes, eg:
+    ///
+    /// ```rust
+    /// use mime::Mime;
+    /// use xdg_mime::SharedMimeInfo;
+    ///
+    /// let parents = (SharedMimeInfo::new()).get_parents_aliased(&Mime::from_str("application/toml")?)?;
+    /// assert!(parents.contains(&mime::TEXT_PLAIN));
+    /// ```
+    pub fn get_parents_aliased(&self, mime_type: &Mime) -> Option<Vec<Mime>> {
+        let mut res = Vec::new();
+
+        if let Some(parents) = self.parents.lookup(&mime_type) {
+            for parent in parents {
+                res.push(parent.clone());
+            }
+        };
+
+        match res.len() {
+            0 => None,
+            _ => Some(res),
+        }
+    }
+
     /// Retrieves the list of matching MIME types for the given file name,
     /// without looking at the data inside the file.
     ///
