@@ -64,6 +64,7 @@
 //! [`guess`]: struct.GuessBuilder.html#method.guess
 
 use mime::Mime;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -75,6 +76,7 @@ extern crate dirs_next;
 extern crate nom;
 
 mod alias;
+mod comment;
 mod glob;
 mod icon;
 mod magic;
@@ -90,6 +92,7 @@ struct MimeDirectory {
 pub struct SharedMimeInfo {
     aliases: alias::AliasesList,
     parents: parent::ParentsMap,
+    comments: HashMap<Mime, String>,
     icons: Vec<icon::Icon>,
     generic_icons: Vec<icon::Icon>,
     globs: glob::GlobMap,
@@ -400,7 +403,7 @@ impl<'a> GuessBuilder<'a> {
                 && !self.data.is_empty()
                 && looks_like_text(&self.data)
             {
-                mime = mime::TEXT_PLAIN;
+                // mime = mime::TEXT_PLAIN;
             }
 
             // From the content type guessing implementation in GIO:
@@ -505,6 +508,7 @@ impl SharedMimeInfo {
         SharedMimeInfo {
             aliases: alias::AliasesList::new(),
             parents: parent::ParentsMap::new(),
+            comments: HashMap::new(),
             icons: Vec::new(),
             generic_icons: Vec::new(),
             globs: glob::GlobMap::new(),
@@ -535,6 +539,11 @@ impl SharedMimeInfo {
 
         let magic_entries = magic::read_magic_from_dir(&mime_path);
         self.magic.extend(magic_entries);
+
+        let comments = comment::read_comments_from_dir(&mime_path);
+        for comment in comments {
+            self.comments.entry(comment.0).or_insert(comment.1);
+        }
 
         let mime_dir = match fs::metadata(&mime_path) {
             Ok(v) => {
@@ -737,6 +746,10 @@ impl SharedMimeInfo {
             0 => None,
             _ => Some(res),
         }
+    }
+
+    pub fn get_comment(&self, mime_type: &Mime) -> Option<&String> {
+        self.comments.get(mime_type)
     }
 
     /// Retrieves the list of matching MIME types for the given file name,

@@ -57,10 +57,7 @@ impl ParentsMap {
     }
 
     fn add_subclass(&mut self, subclass: Subclass) {
-        let v = self
-            .parents
-            .entry(subclass.mime_type.clone())
-            .or_default();
+        let v = self.parents.entry(subclass.mime_type.clone()).or_default();
         if !v.contains(&subclass.parent_type) {
             v.push(subclass.parent_type);
         }
