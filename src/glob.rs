@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use glob::Pattern;
-use mime::Mime;
+use itertools::Itertools;
+use mediatype::MediaTypeBuf as Mime;
 use unicase::UniCase;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -147,7 +148,7 @@ impl Glob {
             let flags_chunks = flags.split(',').collect::<Vec<&str>>();
 
             // Allow for extra flags
-            if flags_chunks.iter().any(|&f| f == "cs") {
+            if flags_chunks.contains(&"cs") {
                 case_sensitive = true;
             }
         }
@@ -279,19 +280,15 @@ impl GlobMap {
         self.globs.extend(globs.iter().cloned());
     }
 
-    pub fn lookup_mime_type_for_file_name(&self, file_name: &str) -> Option<Vec<Mime>> {
-        let mut matching_globs = Vec::new();
-
-        for glob in &self.globs {
-            if glob.compare(file_name) {
-                matching_globs.push(glob.clone());
-            }
-        }
+    pub fn lookup_mime_type_for_file_name(&self, file_name: &str) -> Vec<&Mime> {
+        let matching_globs = self.globs.iter().filter(|glob| glob.compare(file_name));
 
         // Sort in descending order by weight
-        matching_globs.sort_by(|a, b| b.weight.cmp(&a.weight));
+        let matching_globs = matching_globs
+            .sorted_by(|a, b| b.weight.cmp(&a.weight))
+            .collect_vec();
 
-        let biggest_weight = matching_globs.first()?.weight;
+        let biggest_weight = matching_globs.first().map(|x| x.weight).unwrap_or(0);
 
         // "Keep only globs with the biggest weight."
         // -- shared-mime-info, "Recommended checking order"
@@ -304,17 +301,16 @@ impl GlobMap {
         let biggest_glob_length = matching_globs
             .clone()
             .map(|glob| glob.glob.to_string().len())
-            .max()?;
+            .max()
+            .unwrap_or(0);
 
         // "If the patterns are different, keep only the globs
         // with the longest pattern, as previously discussed."
         // -- shared-mime-info, "Recommended checking order"
-        let res = matching_globs
+        matching_globs
             .filter(|glob| glob.glob.to_string().len() == biggest_glob_length)
-            .map(|glob| glob.mime_type.clone())
-            .collect();
-
-        Some(res)
+            .map(|glob| &glob.mime_type)
+            .collect()
     }
 
     pub fn clear(&mut self) {
@@ -447,18 +443,18 @@ mod tests {
             50,
             false,
         );
-        assert_eq!(copying.compare(&"COPYING".to_string()), true);
+        assert!(copying.compare("COPYING"));
 
         // Simple, case-insensitive
         let c_src = Glob::new(&Mime::from_str("text/x-csrc").unwrap(), "*.c", 50, false);
-        assert_eq!(c_src.compare(&"foo.c".to_string()), true);
-        assert_eq!(c_src.compare(&"FOO.C".to_string()), true);
+        assert!(c_src.compare("foo.c"));
+        assert!(c_src.compare("FOO.C"));
 
         // Simple, case-sensitive
         let cplusplus_src = Glob::new(&Mime::from_str("text/x-c++src").unwrap(), "*.C", 50, true);
-        assert_eq!(cplusplus_src.compare(&"foo.C".to_string()), true);
-        assert_eq!(cplusplus_src.compare(&"foo.c".to_string()), false);
-        assert_eq!(cplusplus_src.compare(&"foo.h".to_string()), false);
+        assert!(cplusplus_src.compare("foo.C"));
+        assert!(!cplusplus_src.compare("foo.c"));
+        assert!(!cplusplus_src.compare("foo.h"));
 
         // Full
         let video_x_anim = Glob::new(
@@ -467,9 +463,9 @@ mod tests {
             50,
             false,
         );
-        assert_eq!(video_x_anim.compare(&"foo.anim0".to_string()), false);
-        assert_eq!(video_x_anim.compare(&"foo.anim8".to_string()), true);
-        assert_eq!(video_x_anim.compare(&"foo.animk".to_string()), false);
-        assert_eq!(video_x_anim.compare(&"foo.animj".to_string()), true);
+        assert!(!video_x_anim.compare("foo.anim0"));
+        assert!(video_x_anim.compare("foo.anim8"));
+        assert!(!video_x_anim.compare("foo.animk"));
+        assert!(video_x_anim.compare("foo.animj"));
     }
 }

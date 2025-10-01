@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::str::{self, FromStr};
 use std::vec::Vec;
 
-use mime::Mime;
+use mediatype::MediaTypeBuf as Mime;
 
 pub fn to_string(s: &[u8]) -> std::result::Result<&str, std::str::Utf8Error> {
     str::from_utf8(s)
@@ -174,7 +174,7 @@ fn magic_rule(bytes: &[u8]) -> IResult<&[u8], MagicRule> {
 
 #[derive(Clone, PartialEq)]
 pub struct MagicEntry {
-    mime_type: Mime,
+    pub mime_type: Mime,
     priority: u32,
     rules: Vec<MagicRule>,
 }
@@ -190,7 +190,7 @@ impl fmt::Debug for MagicEntry {
 }
 
 impl MagicEntry {
-    fn matches(&self, data: &[u8]) -> Option<(&Mime, u32)> {
+    pub fn matches(&self, data: &[u8]) -> Option<(&Mime, u32)> {
         let mut current_level = 0;
 
         let mut iter = self.rules.iter().peekable();
@@ -223,7 +223,7 @@ impl MagicEntry {
         None
     }
 
-    fn max_extents(&self) -> usize {
+    pub fn max_extents(&self) -> usize {
         self.rules.iter().map(MagicRule::extent).max().unwrap_or(0)
     }
 }
@@ -269,11 +269,11 @@ fn from_u8_to_entries(bytes: &[u8]) -> IResult<&[u8], Vec<MagicEntry>> {
     Ok((bytes, entries))
 }
 
-pub fn lookup_data(entries: &[MagicEntry], data: &[u8]) -> Option<(Mime, u32)> {
+pub fn lookup_data<'a>(entries: &'a [MagicEntry], data: &[u8]) -> Option<(&'a Mime, u32)> {
     entries
         .iter()
         .find_map(|e| e.matches(data))
-        .map(|v| (v.0.clone(), v.1))
+        .map(|v| (v.0, v.1))
 }
 
 pub fn max_extents(entries: &[MagicEntry]) -> usize {
@@ -285,7 +285,7 @@ pub fn max_extents(entries: &[MagicEntry]) -> usize {
 }
 
 pub fn read_magic_from_file<P: AsRef<Path>>(file_name: P) -> Vec<MagicEntry> {
-    let mut f = match File::open(file_name) {
+    let mut f = match File::open(file_name.as_ref()) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
@@ -293,6 +293,7 @@ pub fn read_magic_from_file<P: AsRef<Path>>(file_name: P) -> Vec<MagicEntry> {
     let mut magic_buf = Vec::<u8>::new();
 
     f.read_to_end(&mut magic_buf).unwrap();
+
     match from_u8_to_entries(magic_buf.as_slice()) {
         Ok(v) => v.1,
         Err(_) => Vec::new(),
@@ -315,7 +316,7 @@ mod tests {
 
     #[test]
     fn parse_magic_header() {
-        let res = magic_header(&"[50:application/x-yaml]\n".as_bytes());
+        let res = magic_header("[50:application/x-yaml]\n".as_bytes());
 
         match res {
             Ok((i, o)) => {
@@ -435,7 +436,7 @@ mod tests {
         let rule = MagicRule {
             indent: 0,
             start_offset: 0,
-            value: vec!['h' as u8, 'e' as u8, 'l' as u8, 'l' as u8, 'o' as u8],
+            value: vec![b'h', b'e', b'l', b'l', b'o'],
             mask: None,
             word_size: 1,
             range_length: 30,
@@ -450,7 +451,7 @@ mod tests {
         let rule = MagicRule {
             indent: 0,
             start_offset: 1,
-            value: vec!['h' as u8, 'e' as u8, 'l' as u8, 'l' as u8, 'o' as u8],
+            value: vec![b'h', b'e', b'l', b'l', b'o'],
             mask: None,
             word_size: 1,
             range_length: 30,
@@ -466,7 +467,7 @@ mod tests {
         let rule = MagicRule {
             indent: 0,
             start_offset: 0,
-            value: vec!['h' as u8, 'e' as u8, 'l' as u8, 'l' as u8, 'o' as u8],
+            value: vec![b'h', b'e', b'l', b'l', b'o'],
             mask: None,
             word_size: 1,
             range_length: 10,
@@ -484,7 +485,7 @@ mod tests {
         let rule = MagicRule {
             indent: 0,
             start_offset: 1,
-            value: vec!['h' as u8, 'e' as u8, 'l' as u8, 'l' as u8, 'o' as u8],
+            value: vec![b'h', b'e', b'l', b'l', b'o'],
             mask: None,
             word_size: 1,
             range_length: 3,
@@ -502,7 +503,7 @@ mod tests {
         let rule = MagicRule {
             indent: 0,
             start_offset: 0,
-            value: vec!['h' as u8, 'E' as u8, 'l' as u8, 'l' as u8, 'O' as u8],
+            value: vec![b'h', b'E', b'l', b'l', b'O'],
             mask: Some(vec![!0x20; 5]),
             word_size: 1,
             range_length: 30,

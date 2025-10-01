@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use mime::Mime;
+use mediatype::MediaTypeBuf as Mime;
 
 pub fn read_comments_from_dir<P: AsRef<Path>>(dir: P) -> HashMap<Mime, String> {
     let dir = dir.as_ref();
@@ -30,12 +30,11 @@ pub fn read_comments_from_dir<P: AsRef<Path>>(dir: P) -> HashMap<Mime, String> {
         }
 
         match line.parse() {
-            Ok(v) => match read_comment_from_file(dir.join(line + ".xml")) {
-                Some(c) => {
+            Ok(v) => {
+                if let Some(c) = read_comment_from_file(dir.join(line + ".xml")) {
                     res.entry(v).or_insert(c);
                 }
-                None => {}
-            },
+            }
             Err(_) => continue,
         }
     }

@@ -4,9 +4,8 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
-use mime::Mime;
+use mediatype::MediaTypeBuf as Mime;
 
 #[derive(Clone, PartialEq)]
 pub struct Subclass {
@@ -24,8 +23,8 @@ impl Subclass {
 
     fn from_string(s: &str) -> Option<Subclass> {
         let mut chunks = s.split_whitespace().fuse();
-        let mime_type = chunks.next().and_then(|s| Mime::from_str(s).ok())?;
-        let parent_type = chunks.next().and_then(|s| Mime::from_str(s).ok())?;
+        let mime_type = chunks.next().and_then(|s| s.parse().ok())?;
+        let parent_type = chunks.next().and_then(|s| s.parse().ok())?;
 
         // Consume the leftovers, if any
         if chunks.next().is_some() {
@@ -123,8 +122,8 @@ mod tests {
         assert_eq!(
             Subclass::from_string("message/partial text/plain").unwrap(),
             Subclass::new(
-                &Mime::from_str("message/partial").unwrap(),
-                &Mime::from_str("text/plain").unwrap()
+                &"message/partial".parse().unwrap(),
+                &"text/plain".parse().unwrap()
             )
         );
     }
@@ -134,17 +133,17 @@ mod tests {
         let mut pm = ParentsMap::new();
 
         pm.add_subclass(Subclass::new(
-            &Mime::from_str("message/partial").unwrap(),
-            &Mime::from_str("text/plain").unwrap(),
+            &"message/partial".parse().unwrap(),
+            &"text/plain".parse().unwrap(),
         ));
         pm.add_subclass(Subclass::new(
-            &Mime::from_str("text/rfc822-headers").unwrap(),
-            &Mime::from_str("text/plain").unwrap(),
+            &"text/rfc822-headers".parse().unwrap(),
+            &"text/plain".parse().unwrap(),
         ));
 
         assert_eq!(
-            pm.lookup(&Mime::from_str("message/partial").unwrap()),
-            Some(&vec![Mime::from_str("text/plain").unwrap()]),
+            pm.lookup(&"message/partial".parse().unwrap()),
+            Some(&vec!["text/plain".parse().unwrap()]),
         );
     }
 

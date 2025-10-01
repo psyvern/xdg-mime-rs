@@ -3,9 +3,8 @@ use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
-use mime::Mime;
+use mediatype::MediaTypeBuf as Mime;
 
 #[derive(Clone, PartialEq)]
 pub struct Alias {
@@ -29,8 +28,8 @@ impl Alias {
 
     pub fn from_string(s: &str) -> Option<Alias> {
         let mut chunks = s.split_whitespace().fuse();
-        let alias = chunks.next().and_then(|s| Mime::from_str(s).ok())?;
-        let mime_type = chunks.next().and_then(|s| Mime::from_str(s).ok())?;
+        let alias = chunks.next().and_then(|s| s.parse().ok())?;
+        let mime_type = chunks.next().and_then(|s| s.parse().ok())?;
 
         // Consume the leftovers, if any
         if chunks.next().is_some() {
@@ -62,14 +61,15 @@ impl AliasesList {
     }
 
     pub fn sort(&mut self) {
-        self.aliases.sort_by(|a, b| a.alias.cmp(&b.alias))
+        self.aliases
+            .sort_by(|a, b| a.alias.as_str().cmp(b.alias.as_str()))
     }
 
-    pub fn unalias_mime_type(&self, mime_type: &Mime) -> Option<Mime> {
+    pub fn unalias_mime_type(&self, mime_type: &Mime) -> Option<&Mime> {
         self.aliases
             .iter()
             .find(|a| a.alias == *mime_type)
-            .map(|a| a.mime_type.clone())
+            .map(|a| &a.mime_type)
     }
 
     pub fn clear(&mut self) {
@@ -121,12 +121,12 @@ mod tests {
     #[test]
     fn new_alias() {
         assert!(Alias::new(
-            &Mime::from_str("application/foo").unwrap(),
-            &Mime::from_str("application/foo").unwrap()
+            &"application/foo".parse().unwrap(),
+            &"application/foo".parse().unwrap()
         )
         .is_equivalent(&Alias::new(
-            &Mime::from_str("application/foo").unwrap(),
-            &Mime::from_str("application/x-foo").unwrap()
+            &"application/foo".parse().unwrap(),
+            &"application/x-foo".parse().unwrap()
         )),);
     }
 
@@ -135,8 +135,8 @@ mod tests {
         assert_eq!(
             Alias::from_string("application/x-foo application/foo").unwrap(),
             Alias::new(
-                &Mime::from_str("application/x-foo").unwrap(),
-                &Mime::from_str("application/foo").unwrap(),
+                &"application/x-foo".parse().unwrap(),
+                &"application/foo".parse().unwrap(),
             )
         );
     }

@@ -1,11 +1,11 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 
-use mime::Mime;
+use mediatype::MediaTypeBuf as Mime;
 
 #[derive(Clone, PartialEq)]
 pub struct Icon {
@@ -29,7 +29,7 @@ impl Icon {
 
     pub fn from_string(s: &str) -> Option<Icon> {
         let mut chunks = s.split(':').fuse();
-        let mime_type = chunks.next().and_then(|s| Mime::from_str(s).ok())?;
+        let mime_type = chunks.next().and_then(|s| s.parse().ok())?;
         let icon_name = chunks.next().filter(|s| !s.is_empty())?;
 
         // Consume the leftovers, if any
@@ -44,13 +44,13 @@ impl Icon {
     }
 }
 
-pub fn read_icons_from_file<P: AsRef<Path>>(file_name: P) -> Vec<Icon> {
+pub fn read_icons_from_file<P: AsRef<Path>>(file_name: P) -> HashMap<Mime, String> {
     let f = match File::open(file_name) {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(_) => return HashMap::new(),
     };
 
-    let mut res = Vec::new();
+    let mut res = HashMap::new();
     let file = BufReader::new(&f);
     for line in file.lines() {
         if line.is_err() {
@@ -64,17 +64,15 @@ pub fn read_icons_from_file<P: AsRef<Path>>(file_name: P) -> Vec<Icon> {
         }
 
         match Icon::from_string(&line) {
-            Some(v) => res.push(v),
+            Some(v) => res.insert(v.mime_type, v.icon_name),
             None => continue,
-        }
+        };
     }
-
-    res.sort_by(|a, b| a.mime_type.cmp(&b.mime_type));
 
     res
 }
 
-pub fn read_icons_from_dir<P: AsRef<Path>>(dir: P, generic: bool) -> Vec<Icon> {
+pub fn read_icons_from_dir<P: AsRef<Path>>(dir: P, generic: bool) -> HashMap<Mime, String> {
     let mut icons_file = PathBuf::new();
     icons_file.push(dir);
 
@@ -105,7 +103,7 @@ mod tests {
     fn from_str() {
         assert_eq!(
             Icon::from_string("application/rss+xml:text-html").unwrap(),
-            Icon::new("text-html", &Mime::from_str("application/rss+xml").unwrap())
+            Icon::new("text-html", &"application/rss+xml".parse().unwrap())
         );
     }
 
