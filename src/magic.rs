@@ -7,6 +7,7 @@ use nom::multi::{many0, many1};
 use nom::number::complete::be_u16;
 use nom::sequence::tuple;
 use nom::IResult;
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
@@ -31,8 +32,8 @@ pub fn buf_to_u32(s: &[u8], or_default: u32) -> u32 {
     to_u32(to_string(s), or_default)
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct MagicRule {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MagicRule {
     indent: u32,
     start_offset: u32,
     value: Vec<u8>,
@@ -51,7 +52,7 @@ fn masked_slices_are_equal(a: &[u8], b: &[u8], mask: &[u8]) -> bool {
 }
 
 impl MagicRule {
-    fn matches_data(&self, data: &[u8]) -> bool {
+    pub fn matches_data(&self, data: &[u8]) -> bool {
         assert!(self.mask.is_none() || self.mask.as_ref().unwrap().len() == self.value.len());
 
         let start = self.start_offset as usize;
@@ -69,7 +70,7 @@ impl MagicRule {
         }
     }
 
-    fn extent(&self) -> usize {
+    pub fn extent(&self) -> usize {
         let value_len = self.value.len();
         let offset = self.start_offset as usize;
         let range_len = self.range_length as usize;
@@ -172,25 +173,24 @@ fn magic_rule(bytes: &[u8]) -> IResult<&[u8], MagicRule> {
     ))
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MagicEntry {
-    pub mime_type: Mime,
-    priority: u32,
-    rules: Vec<MagicRule>,
+    pub priority: u32,
+    pub rules: Vec<MagicRule>,
 }
 
 impl fmt::Debug for MagicEntry {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "MIME type: {:?} (priority: {:?}):\nrules:\n{:?}",
-            self.mime_type, self.priority, self.rules
+            "(priority: {:?}):\nrules:\n{:?}",
+            self.priority, self.rules
         )
     }
 }
 
 impl MagicEntry {
-    pub fn matches(&self, data: &[u8]) -> Option<(&Mime, u32)> {
+    pub fn matches(&self, data: &[u8]) -> bool {
         let mut current_level = 0;
 
         let mut iter = self.rules.iter().peekable();
@@ -205,7 +205,7 @@ impl MagicEntry {
                 match iter.peek() {
                     Some(next) => {
                         if next.indent <= current_level {
-                            return Some((&self.mime_type, self.priority));
+                            return true;
                         }
 
                         // Otherwise, increase the level and check the
@@ -214,13 +214,13 @@ impl MagicEntry {
                     }
                     None => {
                         // last rule
-                        return Some((&self.mime_type, self.priority));
+                        return true;
                     }
                 };
             }
         }
 
-        None
+        false
     }
 
     pub fn max_extents(&self) -> usize {
@@ -250,41 +250,49 @@ fn magic_header(bytes: &[u8]) -> IResult<&[u8], (u32, Mime)> {
 // magic_entry =
 // <magic_header>
 // <magic_rule>+
-fn magic_entry(bytes: &[u8]) -> IResult<&[u8], MagicEntry> {
+fn magic_entry(bytes: &[u8]) -> IResult<&[u8], (Mime, MagicEntry)> {
     let (bytes, (_header, _rules)) = tuple((magic_header, many1(magic_rule)))(bytes)?;
 
     Ok((
         bytes,
-        MagicEntry {
-            priority: _header.0,
-            mime_type: _header.1,
-            rules: _rules,
-        },
+        (
+            _header.1,
+            MagicEntry {
+                priority: _header.0,
+                rules: _rules,
+            },
+        ),
     ))
 }
 
-fn from_u8_to_entries(bytes: &[u8]) -> IResult<&[u8], Vec<MagicEntry>> {
+fn from_u8_to_entries(bytes: &[u8]) -> IResult<&[u8], Vec<(Mime, MagicEntry)>> {
     let (bytes, (_, entries)) = tuple((tag("MIME-Magic\0\n"), many0(magic_entry)))(bytes)?;
 
     Ok((bytes, entries))
 }
 
-pub fn lookup_data<'a>(entries: &'a [MagicEntry], data: &[u8]) -> Option<(&'a Mime, u32)> {
-    entries
-        .iter()
-        .find_map(|e| e.matches(data))
-        .map(|v| (v.0, v.1))
+pub fn lookup_data<'a>(
+    entries: &'a HashMap<Mime, Vec<MagicEntry>>,
+    data: &[u8],
+) -> Option<(&'a Mime, u32)> {
+    entries.iter().find_map(|(key, value)| {
+        value
+            .iter()
+            .find(|x| x.matches(data))
+            .map(|x| (key, x.priority))
+    })
 }
 
-pub fn max_extents(entries: &[MagicEntry]) -> usize {
+pub fn max_extents(entries: &HashMap<Mime, Vec<MagicEntry>>) -> usize {
     entries
-        .iter()
-        .map(MagicEntry::max_extents)
+        .values()
+        .flatten()
+        .map(|x| x.max_extents())
         .max()
         .unwrap_or(0)
 }
 
-pub fn read_magic_from_file<P: AsRef<Path>>(file_name: P) -> Vec<MagicEntry> {
+pub fn read_magic_from_file<P: AsRef<Path>>(file_name: P) -> Vec<(Mime, MagicEntry)> {
     let mut f = match File::open(file_name.as_ref()) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
@@ -300,7 +308,7 @@ pub fn read_magic_from_file<P: AsRef<Path>>(file_name: P) -> Vec<MagicEntry> {
     }
 }
 
-pub fn read_magic_from_dir<P: AsRef<Path>>(dir: P) -> Vec<MagicEntry> {
+pub fn read_magic_from_dir<P: AsRef<Path>>(dir: P) -> Vec<(Mime, MagicEntry)> {
     let mut magic_file = PathBuf::new();
     magic_file.push(dir);
     magic_file.push("magic");

@@ -44,66 +44,22 @@ impl Alias {
     }
 }
 
-pub struct AliasesList {
-    aliases: Vec<Alias>,
-}
-
-impl AliasesList {
-    pub fn new() -> AliasesList {
-        AliasesList {
-            aliases: Vec::new(),
-        }
-    }
-
-    pub fn add_aliases(&mut self, aliases: Vec<Alias>) {
-        self.aliases.extend(aliases);
-        self.sort();
-    }
-
-    pub fn sort(&mut self) {
-        self.aliases
-            .sort_by(|a, b| a.alias.as_str().cmp(b.alias.as_str()))
-    }
-
-    pub fn unalias_mime_type(&self, mime_type: &Mime) -> Option<&Mime> {
-        self.aliases
-            .iter()
-            .find(|a| a.alias == *mime_type)
-            .map(|a| &a.mime_type)
-    }
-
-    pub fn clear(&mut self) {
-        self.aliases.clear();
-    }
-}
-
 pub fn read_aliases_from_file<P: AsRef<Path>>(file_name: P) -> Vec<Alias> {
-    let mut res = Vec::new();
-
-    let f = match File::open(file_name) {
-        Ok(v) => v,
-        Err(_) => return res,
+    let Ok(file) = File::open(file_name) else {
+        return Vec::new();
     };
 
-    let file = BufReader::new(&f);
-    for line in file.lines() {
-        if line.is_err() {
-            return res; // FIXME: return error instead
-        }
+    BufReader::new(&file)
+        .lines()
+        .map_while(Result::ok)
+        .flat_map(|line| {
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
 
-        let line = line.unwrap();
-
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        match Alias::from_string(&line) {
-            Some(v) => res.push(v),
-            None => continue,
-        }
-    }
-
-    res
+            Alias::from_string(&line)
+        })
+        .collect()
 }
 
 pub fn read_aliases_from_dir<P: AsRef<Path>>(dir: P) -> Vec<Alias> {

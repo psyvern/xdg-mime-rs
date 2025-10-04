@@ -73,6 +73,8 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::magic::MagicEntry;
+
 extern crate dirs_next;
 extern crate nom;
 
@@ -89,15 +91,24 @@ struct MimeDirectory {
     mtime: SystemTime,
 }
 
+pub struct MimeInfo {
+    mime: Mime,
+    alias: Option<usize>,
+    parents: Vec<usize>,
+    comment: Option<String>,
+    icon: Option<String>,
+    generic_icons: Option<String>,
+}
+
 /// The shared MIME info database.
 pub struct SharedMimeInfo {
-    aliases: alias::AliasesList,
+    aliases: HashMap<Mime, Mime>,
     parents: parent::ParentsMap,
     comments: HashMap<Mime, String>,
     icons: HashMap<Mime, String>,
     generic_icons: HashMap<Mime, String>,
     globs: glob::GlobMap,
-    pub magic: Vec<magic::MagicEntry>,
+    pub magic: HashMap<Mime, Vec<MagicEntry>>,
     max_magic: usize,
     mime_dirs: Vec<MimeDirectory>,
 }
@@ -504,13 +515,13 @@ impl Default for SharedMimeInfo {
 impl SharedMimeInfo {
     fn create() -> SharedMimeInfo {
         SharedMimeInfo {
-            aliases: alias::AliasesList::new(),
+            aliases: HashMap::new(),
             parents: parent::ParentsMap::new(),
             comments: HashMap::new(),
             icons: HashMap::new(),
             generic_icons: HashMap::new(),
             globs: glob::GlobMap::new(),
-            magic: Vec::new(),
+            magic: HashMap::new(),
             max_magic: 0,
             mime_dirs: Vec::new(),
         }
@@ -522,7 +533,9 @@ impl SharedMimeInfo {
         mime_path.push("mime");
 
         let aliases = alias::read_aliases_from_dir(&mime_path);
-        self.aliases.add_aliases(aliases);
+        for alias in aliases {
+            self.aliases.entry(alias.alias).or_insert(alias.mime_type);
+        }
 
         let icons = icon::read_icons_from_dir(&mime_path, false);
         self.icons.extend(icons);
@@ -537,7 +550,9 @@ impl SharedMimeInfo {
         self.globs.add_globs(&globs);
 
         let magic_entries = magic::read_magic_from_dir(&mime_path);
-        self.magic.extend(magic_entries);
+        for (mime, entry) in magic_entries {
+            self.magic.entry(mime).or_default().push(entry);
+        }
 
         let comments = comment::read_comments_from_dir(&mime_path);
         for comment in comments {
@@ -585,6 +600,7 @@ impl SharedMimeInfo {
         }
 
         db.max_magic = magic::max_extents(&db.magic);
+
         db
     }
 
@@ -665,7 +681,7 @@ impl SharedMimeInfo {
 
     /// Retrieves the MIME type aliased by a MIME type, if any.
     pub fn unalias_mime_type(&self, mime_type: &Mime) -> Option<&Mime> {
-        self.aliases.unalias_mime_type(mime_type)
+        self.aliases.get(mime_type)
     }
 
     /// Looks up the icon associated to a MIME type.
@@ -694,7 +710,7 @@ impl SharedMimeInfo {
 
     /// Retrieves all the parent MIME types associated to `mime_type`.
     pub fn get_parents(&self, mime_type: &Mime) -> Option<Vec<&Mime>> {
-        let unaliased = self.aliases.unalias_mime_type(mime_type)?;
+        let unaliased = self.aliases.get(mime_type)?;
 
         let mut res = vec![unaliased];
 
@@ -935,11 +951,11 @@ mod tests {
 
         assert_eq!(
             mime_db.lookup_generic_icon_name(&Mime::new(APPLICATION, JSON)),
-            Some("text-x-script".to_string())
+            "text-x-script".to_string()
         );
         assert_eq!(
             mime_db.lookup_generic_icon_name(&Mime::new(TEXT, PLAIN)),
-            Some("text-x-generic".to_string())
+            "text-x-generic".to_string()
         );
     }
 
